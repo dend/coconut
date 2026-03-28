@@ -67,9 +67,12 @@ enum LibraryAction {
     /// Filter by platform: windows, linux, mac
     #[arg(long)]
     platform: Option<String>,
-    /// Directory to sync files into
+    /// Primary directory to sync files into
     #[arg(long)]
     sync_dir: Option<PathBuf>,
+    /// Overflow directory when primary runs out of space
+    #[arg(long)]
+    overflow_dir: Option<PathBuf>,
     /// Re-download all files even if already present
     #[arg(long)]
     force: bool,
@@ -97,8 +100,18 @@ async fn main() {
         game,
         platform,
         sync_dir,
+        overflow_dir,
         force,
-      } => cmd_library_sync(game, platform, sync_dir, force).await,
+      } => {
+        cmd_library_sync(
+          game,
+          platform,
+          sync_dir,
+          overflow_dir,
+          force,
+        )
+        .await
+      }
     },
   };
 
@@ -329,6 +342,7 @@ async fn cmd_library_sync(
   game: Option<String>,
   platform: Option<String>,
   sync_dir: Option<PathBuf>,
+  overflow_dir: Option<PathBuf>,
   force: bool,
 ) -> error::Result<()> {
   let sync_dir = match sync_dir {
@@ -363,10 +377,17 @@ async fn cmd_library_sync(
     }
   };
 
+  let overflow_dir = overflow_dir
+    .map(|p| PathBuf::from(shellexpand(&p.to_string_lossy())));
+
   std::fs::create_dir_all(&sync_dir)?;
+  if let Some(ref od) = overflow_dir {
+    std::fs::create_dir_all(od)?;
+  }
 
   run_sync(SyncOptions {
     sync_dir,
+    overflow_dir,
     game_filter: game,
     platform_filter: platform,
     force,

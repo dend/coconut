@@ -13,6 +13,7 @@ use crate::library::manifest::{ManifestEntry, SyncManifest};
 
 pub struct SyncOptions {
   pub sync_dir: PathBuf,
+  pub overflow_dir: Option<PathBuf>,
   pub game_filter: Option<String>,
   pub platform_filter: Option<String>,
   pub force: bool,
@@ -22,10 +23,15 @@ struct DownloadJob {
   game_id: u64,
   game_slug: String,
   manual_url: String,
-  dest_dir: PathBuf,
+  /// Relative path within the sync root (e.g. "game_slug/windows")
+  relative_dir: PathBuf,
   version: Option<String>,
   display_name: String,
 }
+
+/// Minimum free space (in bytes) before switching to overflow.
+/// 1 GB buffer to avoid filling a disk completely.
+const MIN_FREE_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub async fn run_sync(opts: SyncOptions) -> Result<()> {
   let mut client = GogClient::new().await?;
@@ -57,9 +63,26 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
     "{}",
     style(format!("Syncing {} games...", products.len())).cyan()
   );
+  if let Some(ref od) = opts.overflow_dir {
+    println!(
+      "  Primary:  {}",
+      style(opts.sync_dir.display()).bold()
+    );
+    println!(
+      "  Overflow: {}",
+      style(od.display()).bold()
+    );
+  }
 
-  // Load manifest
+  // Load manifests
   let mut manifest = SyncManifest::load(&opts.sync_dir)?;
+  let mut overflow_manifest = opts
+    .overflow_dir
+    .as_ref()
+    .map(|od| SyncManifest::load(od))
+    .transpose()?
+    .unwrap_or_default();
+
   let mut jobs: Vec<DownloadJob> = Vec::new();
 
   // Fetch details for each game and build download jobs
@@ -97,6 +120,7 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
       &details,
       &opts,
       &manifest,
+      &overflow_manifest,
       &mut jobs,
     );
   }
@@ -119,6 +143,7 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
   let multi = MultiProgress::new();
   let mut downloaded = 0u32;
   let mut failed = 0u32;
+  let mut using_overflow = false;
 
   for (i, job) in jobs.iter().enumerate() {
     let prefix = format!("[{}/{}]", i + 1, jobs.len());
@@ -166,7 +191,6 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
     {
       Ok(name) => sanitize_filename(&name),
       Err(_) => {
-        // Fall back to manual_url last segment
         job
           .manual_url
           .rsplit('/')
@@ -176,10 +200,30 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
       }
     };
 
-    let dest_path = job.dest_dir.join(&filename);
+    // Pick destination: primary or overflow based on free space
+    let (dest_root, is_overflow) =
+      pick_dest_root(&opts, using_overflow);
+    let dest_path =
+      dest_root.join(&job.relative_dir).join(&filename);
+
+    if is_overflow && !using_overflow {
+      using_overflow = true;
+      println!(
+        "  {} Primary disk low on space, switching to overflow: {}",
+        style("!").yellow(),
+        style(dest_root.display()).bold()
+      );
+    }
+
     pb.set_message(format!(
-      "{} / {}",
-      job.display_name, filename
+      "{} / {}{}",
+      job.display_name,
+      filename,
+      if is_overflow {
+        format!(" → {}", style("overflow").yellow())
+      } else {
+        String::new()
+      }
     ));
 
     const MAX_RETRIES: u32 = 10;
@@ -240,25 +284,33 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
       ));
       downloaded += 1;
 
+      let entry = ManifestEntry {
+        game_id: job.game_id,
+        game_slug: job.game_slug.clone(),
+        file_path: dest_path
+          .strip_prefix(dest_root)
+          .unwrap_or(&dest_path)
+          .to_string_lossy()
+          .to_string(),
+        manual_url: job.manual_url.clone(),
+        version: job.version.clone(),
+        size_bytes,
+        downloaded_at: now_unix(),
+      };
+
       let key =
         SyncManifest::key(job.game_id, &job.manual_url);
-      manifest.entries.insert(
-        key,
-        ManifestEntry {
-          game_id: job.game_id,
-          game_slug: job.game_slug.clone(),
-          file_path: dest_path
-            .strip_prefix(&opts.sync_dir)
-            .unwrap_or(&dest_path)
-            .to_string_lossy()
-            .to_string(),
-          manual_url: job.manual_url.clone(),
-          version: job.version.clone(),
-          size_bytes,
-          downloaded_at: now_unix(),
-        },
-      );
-      manifest.save(&opts.sync_dir)?;
+      if is_overflow {
+        overflow_manifest
+          .entries
+          .insert(key, entry);
+        overflow_manifest.save(
+          opts.overflow_dir.as_ref().unwrap(),
+        )?;
+      } else {
+        manifest.entries.insert(key, entry);
+        manifest.save(&opts.sync_dir)?;
+      }
     }
   }
 
@@ -269,10 +321,59 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
     style("Done!").green().bold(),
     downloaded,
     failed,
-    manifest.entries.len() - downloaded as usize
+    manifest.entries.len() + overflow_manifest.entries.len()
+      - downloaded as usize
   );
 
   Ok(())
+}
+
+/// Check available disk space and decide which root to use.
+fn pick_dest_root(
+  opts: &SyncOptions,
+  already_overflowing: bool,
+) -> (&PathBuf, bool) {
+  if already_overflowing
+    && let Some(ref od) = opts.overflow_dir
+  {
+    return (od, true);
+  }
+
+  if let Some(ref od) = opts.overflow_dir
+    && let Ok(free) = fs2_available_space(&opts.sync_dir)
+    && free < MIN_FREE_BYTES
+  {
+    return (od, true);
+  }
+
+  (&opts.sync_dir, false)
+}
+
+/// Get available space on the filesystem containing the given path.
+fn fs2_available_space(path: &std::path::Path) -> std::io::Result<u64> {
+  #[cfg(unix)]
+  {
+    use std::ffi::CString;
+    let c_path = CString::new(
+      path.to_string_lossy().as_bytes(),
+    )
+    .map_err(|e| {
+      std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+    })?;
+    unsafe {
+      let mut stat: libc::statvfs = std::mem::zeroed();
+      if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+        Ok(stat.f_bavail * stat.f_frsize)
+      } else {
+        Err(std::io::Error::last_os_error())
+      }
+    }
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = path;
+    Ok(u64::MAX)
+  }
 }
 
 fn collect_jobs(
@@ -281,6 +382,7 @@ fn collect_jobs(
   details: &GameDetails,
   opts: &SyncOptions,
   manifest: &SyncManifest,
+  overflow_manifest: &SyncManifest,
   jobs: &mut Vec<DownloadJob>,
 ) {
   // Installers
@@ -301,27 +403,33 @@ fn collect_jobs(
         continue;
       }
       for installer in installers.iter() {
+        let version = installer.version.as_deref();
         if !opts.force
-          && manifest.has(
+          && (manifest.has(
             game_id,
             &installer.manual_url,
-            installer.version.as_deref(),
-          )
+            version,
+          ) || overflow_manifest.has(
+            game_id,
+            &installer.manual_url,
+            version,
+          ))
         {
           continue;
         }
 
-        let mut dest_dir = opts.sync_dir.join(slug).join(platform);
+        let mut relative_dir =
+          PathBuf::from(slug).join(platform);
         if language != "English" {
-          dest_dir =
-            dest_dir.join(sanitize_filename(language));
+          relative_dir =
+            relative_dir.join(sanitize_filename(language));
         }
 
         jobs.push(DownloadJob {
           game_id,
           game_slug: slug.to_string(),
           manual_url: installer.manual_url.clone(),
-          dest_dir,
+          relative_dir,
           version: installer.version.clone(),
           display_name: format!(
             "{} / {platform}",
@@ -335,18 +443,20 @@ fn collect_jobs(
   // Extras
   for extra in &details.extras {
     if !opts.force
-      && manifest.has(game_id, &extra.manual_url, None)
+      && (manifest.has(game_id, &extra.manual_url, None)
+        || overflow_manifest
+          .has(game_id, &extra.manual_url, None))
     {
       continue;
     }
 
-    let dest_dir = opts.sync_dir.join(slug).join("extras");
+    let relative_dir = PathBuf::from(slug).join("extras");
 
     jobs.push(DownloadJob {
       game_id,
       game_slug: slug.to_string(),
       manual_url: extra.manual_url.clone(),
-      dest_dir,
+      relative_dir,
       version: None,
       display_name: format!(
         "{} / extras",

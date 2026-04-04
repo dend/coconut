@@ -1,10 +1,16 @@
 <p align="center">
   <img src="assets/coconut.svg" alt="Coconut" width="128" height="128">
+  <br>
+  <br>
+  <b>Coconut</b>
+  <br>
+  <i>Archive your entire GOG library locally.</i>
+  <br>
+  <br>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square&logo=rust" alt="Rust"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+  <a href="https://www.gog.com/"><img src="https://img.shields.io/badge/GOG-compatible-purple?style=flat-square" alt="GOG"></a>
 </p>
-
-<h1 align="center">Coconut</h1>
-
-<p align="center">A CLI tool for syncing your GOG (Good Old Games) library locally.</p> Coconut authenticates with GOG's API, lists your owned games, and downloads all installers and extras to local storage.
 
 ## Installation
 

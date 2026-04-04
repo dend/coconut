@@ -1,16 +1,13 @@
-<p align="center">
+<div align="center">
   <img src="assets/coconut.svg" alt="Coconut" width="128" height="128">
-  <br>
-  <br>
   <h1>Coconut</h1>
-  <br>
-  <i>Archive your entire GOG library locally.</i>
-  <br>
-  <br>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square&logo=rust" alt="Rust"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/<owner>/coconut/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build"></a>
-</p>
+  <p><i>Archive your entire GOG library locally.</i></p>
+  <p>
+    <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square&logo=rust" alt="Rust"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+    <a href="https://github.com/<owner>/coconut/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build"></a>
+  </p>
+</div>
 
 ## Installation
 

@@ -5,7 +5,7 @@
   <p>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square&logo=rust" alt="Rust"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
-    <a href="https://github.com/<owner>/coconut/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build"></a>
+    <a href="https://github.com/dend/coconut/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dend/coconut/ci.yml?style=flat-square" alt="CI"></a>
   </p>
 </div>
 
@@ -14,7 +14,7 @@
 Requires [Rust](https://rustup.rs/) (1.85+).
 
 ```sh
-git clone https://github.com/<owner>/coconut.git
+git clone https://github.com/dend/coconut.git
 cd coconut
 cargo build --release
 ```

@@ -76,6 +76,9 @@ enum LibraryAction {
     /// Re-download all files even if already present
     #[arg(long)]
     force: bool,
+    /// Import existing manifest entries into global download history
+    #[arg(long)]
+    backfill_history: bool,
   },
 }
 
@@ -102,6 +105,7 @@ async fn main() {
         sync_dir,
         overflow_dir,
         force,
+        backfill_history,
       } => {
         cmd_library_sync(
           game,
@@ -109,6 +113,7 @@ async fn main() {
           sync_dir,
           overflow_dir,
           force,
+          backfill_history,
         )
         .await
       }
@@ -344,6 +349,7 @@ async fn cmd_library_sync(
   sync_dir: Option<PathBuf>,
   overflow_dir: Option<PathBuf>,
   force: bool,
+  backfill_history: bool,
 ) -> error::Result<()> {
   let sync_dir = match sync_dir {
     Some(dir) => dir,
@@ -391,6 +397,7 @@ async fn cmd_library_sync(
     game_filter: game,
     platform_filter: platform,
     force,
+    backfill_history,
   })
   .await
 }

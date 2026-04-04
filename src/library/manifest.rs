@@ -67,3 +67,11 @@ impl SyncManifest {
 fn manifest_path(sync_dir: &Path) -> PathBuf {
   sync_dir.join(".coconut-manifest.json")
 }
+
+pub fn now_unix() -> u64 {
+  use std::time::{SystemTime, UNIX_EPOCH};
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .expect("system clock before UNIX epoch")
+    .as_secs()
+}

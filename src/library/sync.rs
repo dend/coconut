@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -8,8 +7,9 @@ use crate::download::manager::{download_file, resolve_filename};
 use crate::error::Result;
 use crate::gog::client::GogClient;
 use crate::gog::models::{GameDetails, Product};
+use crate::library::history::DownloadHistory;
 use crate::library::listing::fetch_all_products;
-use crate::library::manifest::{ManifestEntry, SyncManifest};
+use crate::library::manifest::{ManifestEntry, SyncManifest, now_unix};
 
 pub struct SyncOptions {
   pub sync_dir: PathBuf,
@@ -17,6 +17,7 @@ pub struct SyncOptions {
   pub game_filter: Option<String>,
   pub platform_filter: Option<String>,
   pub force: bool,
+  pub backfill_history: bool,
 }
 
 struct DownloadJob {
@@ -74,7 +75,7 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
     );
   }
 
-  // Load manifests
+  // Load manifests and global download history
   let mut manifest = SyncManifest::load(&opts.sync_dir)?;
   let mut overflow_manifest = opts
     .overflow_dir
@@ -82,6 +83,32 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
     .map(|od| SyncManifest::load(od))
     .transpose()?
     .unwrap_or_default();
+  let mut history = DownloadHistory::load()?;
+
+  if opts.backfill_history {
+    let mut backfilled = 0;
+    backfilled +=
+      crate::library::history::backfill_from_manifest(
+        &mut history,
+        &manifest,
+        &opts.sync_dir,
+      );
+    if let Some(ref od) = opts.overflow_dir {
+      backfilled +=
+        crate::library::history::backfill_from_manifest(
+          &mut history,
+          &overflow_manifest,
+          od,
+        );
+    }
+    if backfilled > 0 {
+      history.save()?;
+      println!(
+        "  {} Imported {backfilled} entries from existing manifests into download history",
+        style("i").cyan()
+      );
+    }
+  }
 
   let mut jobs: Vec<DownloadJob> = Vec::new();
 
@@ -121,6 +148,7 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
       &opts,
       &manifest,
       &overflow_manifest,
+      &history,
       &mut jobs,
     );
   }
@@ -311,6 +339,18 @@ pub async fn run_sync(opts: SyncOptions) -> Result<()> {
         manifest.entries.insert(key, entry);
         manifest.save(&opts.sync_dir)?;
       }
+
+      // Record in global download history
+      history.record(
+        job.game_id,
+        &job.game_slug,
+        &job.manual_url,
+        &filename,
+        job.version.clone(),
+        size_bytes,
+        &dest_path.to_string_lossy(),
+      );
+      history.save()?;
     }
   }
 
@@ -376,6 +416,7 @@ fn fs2_available_space(path: &std::path::Path) -> std::io::Result<u64> {
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_jobs(
   game_id: u64,
   slug: &str,
@@ -383,6 +424,7 @@ fn collect_jobs(
   opts: &SyncOptions,
   manifest: &SyncManifest,
   overflow_manifest: &SyncManifest,
+  history: &DownloadHistory,
   jobs: &mut Vec<DownloadJob>,
 ) {
   // Installers
@@ -410,6 +452,10 @@ fn collect_jobs(
             &installer.manual_url,
             version,
           ) || overflow_manifest.has(
+            game_id,
+            &installer.manual_url,
+            version,
+          ) || history.has(
             game_id,
             &installer.manual_url,
             version,
@@ -445,7 +491,8 @@ fn collect_jobs(
     if !opts.force
       && (manifest.has(game_id, &extra.manual_url, None)
         || overflow_manifest
-          .has(game_id, &extra.manual_url, None))
+          .has(game_id, &extra.manual_url, None)
+        || history.has(game_id, &extra.manual_url, None))
     {
       continue;
     }
@@ -476,13 +523,6 @@ fn sanitize_filename(name: &str) -> String {
       c => c,
     })
     .collect()
-}
-
-fn now_unix() -> u64 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .expect("system clock before UNIX epoch")
-    .as_secs()
 }
 
 fn format_bytes(bytes: u64) -> String {

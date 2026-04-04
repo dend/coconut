@@ -1,16 +1,13 @@
-use reqwest::header::LOCATION;
-use reqwest::redirect::Policy;
 use reqwest::Client;
 
 use crate::auth;
 use crate::auth::token::Token;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::gog::GOG_EMBED_URL;
 use crate::gog::models::{FilteredProductsResponse, GameDetails};
 
 pub struct GogClient {
   http: Client,
-  no_redirect: Client,
   token: Token,
 }
 
@@ -18,14 +15,7 @@ impl GogClient {
   pub async fn new() -> Result<Self> {
     let token = auth::ensure_token().await?;
     let http = Client::new();
-    let no_redirect = Client::builder()
-      .redirect(Policy::none())
-      .build()?;
-    Ok(Self {
-      http,
-      no_redirect,
-      token,
-    })
+    Ok(Self { http, token })
   }
 
   pub fn http(&self) -> &Client {
@@ -79,14 +69,19 @@ impl GogClient {
     self.get_json(&url).await
   }
 
+  /// Resolve a GOG manualUrl to its final download URL.
+  /// Uses the regular client which follows redirects — resp.url()
+  /// gives us the final CDN URL. Works for both 302→CDN redirects
+  /// and direct 200 responses.
   pub async fn resolve_download_url(
     &mut self,
     manual_url: &str,
   ) -> Result<String> {
     let url = format!("{GOG_EMBED_URL}{manual_url}");
+
     let resp = self
-      .no_redirect
-      .get(&url)
+      .http
+      .head(&url)
       .query(&[("access_token", &self.token.access_token)])
       .send()
       .await?;
@@ -94,29 +89,16 @@ impl GogClient {
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
       self.token = auth::refresh(&self.token).await?;
       let resp = self
-        .no_redirect
-        .get(&url)
+        .http
+        .head(&url)
         .query(&[("access_token", &self.token.access_token)])
         .send()
-        .await?;
-      return Self::extract_location(resp);
+        .await?
+        .error_for_status()?;
+      return Ok(resp.url().to_string());
     }
 
-    Self::extract_location(resp)
-  }
-
-  fn extract_location(resp: reqwest::Response) -> Result<String> {
-    resp
-      .headers()
-      .get(LOCATION)
-      .and_then(|v| v.to_str().ok())
-      .map(|s| s.to_string())
-      .ok_or_else(|| {
-        Error::DownloadFailed {
-          url: resp.url().to_string(),
-          reason: "no redirect location in download response"
-            .to_string(),
-        }
-      })
+    let resp = resp.error_for_status()?;
+    Ok(resp.url().to_string())
   }
 }

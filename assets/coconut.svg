@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!--
+    Half-coconut, cut-side-up, isometric top-down 3/4 view.
+    Center at (64, 58). Visual mass centered in background.
+  -->
+
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#9333EA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background — electric blue to purple gradient -->
+  <rect x="4" y="4" width="120" height="120" rx="14" ry="14" fill="url(#bg)"/>
+
+  <!-- ============================================ -->
+  <!-- EXTERIOR SHELL FACETS (drawn first, behind)  -->
+  <!-- ============================================ -->
+
+  <!-- Right side — darkest -->
+  <polygon points="99,58 100,74 83,87" fill="#3A2010"/>
+
+  <!-- Right-front -->
+  <polygon points="100,74 76,96 83,87" fill="#442814"/>
+  <polygon points="100,74 80,81 76,96" fill="#4A2E18"/>
+
+  <!-- Front-center -->
+  <polygon points="80,81 57,96 76,96" fill="#543620"/>
+  <polygon points="80,81 51,74 57,96" fill="#5E3E24"/>
+
+  <!-- Front-left — lightest, facing the light -->
+  <polygon points="51,74 38,87 57,96" fill="#6B4830"/>
+  <polygon points="51,74 29,58 38,87" fill="#7A5638"/>
+
+  <!-- Bottom band -->
+  <polygon points="83,87 76,96 52,91" fill="#2E1A0C"/>
+  <polygon points="76,96 57,96 52,91" fill="#3A2212"/>
+  <polygon points="57,96 38,87 52,91" fill="#4A3018"/>
+
+  <!-- ============================================ -->
+  <!-- CUT FACE — flat octagons                     -->
+  <!-- ============================================ -->
+
+  <!-- Shell cross-section (outer octagon) -->
+  <polygon
+    points="99,58 100,74 80,81 51,74 29,58 28,42 48,35 77,42"
+    fill="#5C3820"
+  />
+
+  <!-- Coconut meat ring (inner octagon) -->
+  <polygon
+    points="92,58 93,71 77,76 54,71 36,58 35,45 51,40 74,45"
+    fill="#F2E8DA"
+  />
+
+  <!-- Center hollow (innermost octagon) -->
+  <polygon
+    points="78,58 78,65 71,67 59,65 50,58 50,51 57,49 69,51"
+    fill="#E5D8C4"
+  />
+</svg>
